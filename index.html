@@ -418,7 +418,11 @@ async function renderSuperAdmin(me, hash){
       <td>${deviceBadge}</td>
       <td>${statusBadge}</td>
       <td><div class="row-actions">
+        <button class="btn-ghost small-ghost" data-edit="${u.id}" style="font-size:12px;padding:5px 10px;">ویرایش اطلاعات</button>
         ${u.device_id ? `<button class="btn-ghost small-ghost" data-forcelogout="${u.id}" style="font-size:12px;padding:5px 10px;">پایان نشست دستگاه</button>` : ''}
+        ${!isSelf ? (u.role==='super_admin'
+            ? `<button class="btn-ghost" data-demote="${u.id}" style="font-size:12px;padding:5px 10px;">عزل از سوپرادمینی</button>`
+            : `<button class="btn-ghost" data-promote="${u.id}" style="font-size:12px;padding:5px 10px;color:var(--pine-deep);">ارتقا به سوپرادمین</button>`) : ''}
         ${u.role!=='super_admin' ? (u.is_active
             ? `<button class="btn-ghost" data-revoke="${u.id}" style="font-size:12px;padding:5px 10px;color:#8f382e;border-color:#e5b8b0;">باطل کردن</button>`
             : `<button class="btn-ghost" data-activate="${u.id}" style="font-size:12px;padding:5px 10px;color:var(--pine-deep);">فعال‌سازی مجدد</button>`)
@@ -426,6 +430,11 @@ async function renderSuperAdmin(me, hash){
       </div></td>
     </tr>`;
   }).join('') || `<tr><td colspan="7" class="empty">هنوز کاربری ثبت نشده.</td></tr>`;
+
+  usersTb.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{
+    const u = (admins||[]).find(x=>x.id===b.dataset.edit);
+    if(u) openEditUserModal(u, ()=>renderSuperAdmin(me, hash));
+  });
 
   usersTb.querySelectorAll('[data-forcelogout]').forEach(b=> b.onclick = async ()=>{
     await sb.from('app_users').update({device_id:null}).eq('id', b.dataset.forcelogout);
@@ -438,6 +447,16 @@ async function renderSuperAdmin(me, hash){
   });
   usersTb.querySelectorAll('[data-activate]').forEach(b=> b.onclick = async ()=>{
     await sb.from('app_users').update({is_active:true}).eq('id', b.dataset.activate);
+    renderSuperAdmin(me, hash);
+  });
+  usersTb.querySelectorAll('[data-promote]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('این کاربر به سوپرادمین ارتقا یابد؟ او به تمام امکانات مدیریتی دسترسی خواهد داشت.')) return;
+    await sb.from('app_users').update({role:'super_admin'}).eq('id', b.dataset.promote);
+    renderSuperAdmin(me, hash);
+  });
+  usersTb.querySelectorAll('[data-demote]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('این کاربر از سوپرادمینی عزل شود و به ادمین عادی تبدیل شود؟')) return;
+    await sb.from('app_users').update({role:'admin'}).eq('id', b.dataset.demote);
     renderSuperAdmin(me, hash);
   });
 
@@ -484,6 +503,36 @@ function openNewLicenseModal(onDone){
       navigator.clipboard.writeText(document.getElementById('nl-code').value);
     };
     document.getElementById('nl-submit').style.display='none';
+  };
+}
+
+function openEditUserModal(u, onDone){
+  const bg = document.createElement('div');
+  bg.className='modal-bg';
+  bg.innerHTML = `<div class="modal">
+    <h3 class="section-title">ویرایش اطلاعات ${u.role==='super_admin'?'سوپرادمین':'ادمین'}</h3>
+    <div class="field-gap"><label class="field-label">نام</label><input type="text" id="eu-name" value="${escapeHtml(u.name)}"></div>
+    <div class="field-gap"><label class="field-label">شماره موبایل</label><input type="tel" id="eu-phone" value="${escapeHtml(u.phone)}" placeholder="09xxxxxxxxx"></div>
+    <div id="eu-msg"></div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button class="btn" id="eu-submit" style="flex:1;">ذخیره تغییرات</button>
+      <button class="btn-ghost" id="eu-cancel">انصراف</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  document.getElementById('eu-cancel').onclick = ()=> bg.remove();
+  document.getElementById('eu-submit').onclick = async ()=>{
+    const name = document.getElementById('eu-name').value.trim();
+    const phone = document.getElementById('eu-phone').value.trim();
+    const msg = document.getElementById('eu-msg');
+    if(!name || !phone){ msg.innerHTML = `<div class="error-box">نام و شماره را کامل وارد کن.</div>`; return; }
+    const {error} = await sb.from('app_users').update({name, phone}).eq('id', u.id);
+    if(error){
+      msg.innerHTML = `<div class="error-box">${(error.message||'').includes('duplicate')?'این شماره قبلاً برای کاربر دیگری ثبت شده است.':'خطا در ذخیره تغییرات.'}</div>`;
+      return;
+    }
+    bg.remove();
+    onDone();
   };
 }
 
