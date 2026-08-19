@@ -284,7 +284,6 @@ async function boot(){
 
 /* ================= LOGIN / REGISTER ================= */
 function renderLogin(flashError){
-  let mode = 'login'; // login | register
   draw();
 
   function draw(){
@@ -293,18 +292,10 @@ function renderLogin(flashError){
       <div class="arch-ornament"></div>
       <h1 class="login-title">مسجد امیرالمؤمنین (ع)</h1>
       <div class="login-sub">سامانه فرم‌ساز و مدیریت ثبت‌نام</div>
-      <div class="tabs">
-        <div class="tab ${mode==='login'?'active':''}" data-m="login">ورود با لایسنس</div>
-        <div class="tab ${mode==='register'?'active':''}" data-m="register">فعال‌سازی لایسنس جدید</div>
-      </div>
       <form id="login-form">
         <div class="field-gap">
           <label class="field-label">شماره موبایل</label>
           <input type="tel" id="f-phone" placeholder="09xxxxxxxxx" required>
-        </div>
-        <div class="field-gap">
-          <label class="field-label">نام و نام خانوادگی</label>
-          <input type="text" id="f-name" placeholder="مثلاً: علی رضایی" required>
         </div>
         <div class="field-gap">
           <label class="field-label">کد لایسنس</label>
@@ -313,7 +304,7 @@ function renderLogin(flashError){
         <div id="login-msg"></div>
         <div style="margin-top:18px;">
           <button class="btn" type="submit" style="width:100%;" id="submit-btn">
-            ${mode==='login' ? 'ورود به سامانه' : 'فعال‌سازی و ورود'}
+            ورود
           </button>
         </div>
       </form>
@@ -327,13 +318,11 @@ function renderLogin(flashError){
       flashError = null;
     }
 
-    document.querySelectorAll('.tab').forEach(t=> t.onclick = ()=>{ mode = t.dataset.m; draw(); });
-    document.getElementById('login-form').onsubmit = (e)=>{ e.preventDefault(); mode==='login' ? doLogin() : doRegister(); };
+    document.getElementById('login-form').onsubmit = (e)=>{ e.preventDefault(); doLogin(); };
   }
 
   async function doLogin(){
     const phone = document.getElementById('f-phone').value.trim();
-    const name = document.getElementById('f-name').value.trim();
     const license = document.getElementById('f-license').value.trim().toUpperCase();
     const msg = document.getElementById('login-msg');
     const btn = document.getElementById('submit-btn');
@@ -341,7 +330,6 @@ function renderLogin(flashError){
 
     const {data:u, error} = await sb.from('app_users').select('*').eq('phone', phone).eq('license_key', license).maybeSingle();
     if(error || !u){ msg.innerHTML = `<div class="error-box">شماره یا کد لایسنس اشتباه است.</div>`; btn.disabled=false; return; }
-    if(u.name.trim() !== name){ msg.innerHTML = `<div class="error-box">نام وارد شده با نام ثبت‌شده مطابقت ندارد.</div>`; btn.disabled=false; return; }
     if(!u.is_active){ msg.innerHTML = `<div class="error-box">این لایسنس باطل شده است. با سوپرادمین تماس بگیرید.</div>`; btn.disabled=false; return; }
 
     const device = getDeviceId();
@@ -359,11 +347,6 @@ function renderLogin(flashError){
     boot();
   }
 
-  async function doRegister(){
-    // "register" here just means: first-time activation of a license someone already gave you.
-    // It runs the exact same check as login (a license row must already exist, created by super admin or self-seed).
-    return doLogin();
-  }
 }
 
 /* ================= SUPER ADMIN ================= */
@@ -556,6 +539,7 @@ function renderFormsTable(tbody, forms, subs, me, refresh){
         <a href="#/submissions/${f.id}"><button class="btn-ghost" style="font-size:12px;padding:5px 10px;">پاسخ‌ها</button></a>
         <button class="btn-ghost" data-link="${publicUrl}" style="font-size:12px;padding:5px 10px;">کپی لینک عمومی</button>
         <button class="btn-ghost" data-toggle="${f.id}" data-cur="${f.is_active}" style="font-size:12px;padding:5px 10px;">${f.is_active?'بستن فرم':'باز کردن فرم'}</button>
+        <button class="btn-ghost" data-delete="${f.id}" style="font-size:12px;padding:5px 10px;color:#8f382e;border-color:#e5b8b0;">حذف فرم</button>
       </div></td>
     </tr>`;
   }).join('') || `<tr><td colspan="4" class="empty">هنوز فرمی نساخته‌ای. با دکمه «فرم جدید» شروع کن.</td></tr>`;
@@ -568,6 +552,15 @@ function renderFormsTable(tbody, forms, subs, me, refresh){
   tbody.querySelectorAll('[data-toggle]').forEach(b=> b.onclick = async ()=>{
     const cur = b.dataset.cur === 'true';
     await sb.from('forms').update({is_active: !cur}).eq('id', b.dataset.toggle);
+    refresh();
+  });
+  tbody.querySelectorAll('[data-delete]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('این فرم و تمام پاسخ‌های ثبت‌شده برای آن برای همیشه حذف شود؟')) return;
+    b.disabled = true;
+    const formId = b.dataset.delete;
+    await sb.from('submissions').delete().eq('form_id', formId);
+    const {error} = await sb.from('forms').delete().eq('id', formId);
+    if(error){ alert('خطا در حذف فرم: ' + (error.message || '')); b.disabled = false; return; }
     refresh();
   });
 }
