@@ -312,10 +312,6 @@ function renderTopbar(){
 }
 
 async function doLogout(){
-  const s = getSession();
-  if(s){
-    await sb.from('app_users').update({device_id:null}).eq('id', s.id);
-  }
   clearSession();
   location.hash = '#/';
   boot();
@@ -339,7 +335,7 @@ async function boot(){
 
   // re-validate session against DB (license could be revoked / device changed)
   const {data:u, error} = await sb.from('app_users').select('*').eq('id', s.id).single();
-  if(error || !u || !u.is_active || u.device_id !== getDeviceId()){
+  if(error || !u || !u.is_active){
     clearSession();
     return renderLogin(u && !u.is_active ? 'لایسنس شما توسط سوپرادمین باطل شده است.' : 'نشست شما معتبر نیست، دوباره وارد شوید.');
   }
@@ -378,7 +374,7 @@ function renderLogin(flashError){
         </div>
       </form>
       <div class="hint-row">
-        <span class="muted">لایسنس فقط روی یک دستگاه فعال می‌شود.</span>
+        <span class="muted">با شماره موبایل و کد لایسنس خود وارد شوید.</span>
       </div>
     </div></div>`;
 
@@ -401,16 +397,6 @@ function renderLogin(flashError){
     if(error || !u){ msg.innerHTML = `<div class="error-box">شماره یا کد لایسنس اشتباه است.</div>`; btn.disabled=false; return; }
     if(!u.is_active){ msg.innerHTML = `<div class="error-box">این لایسنس باطل شده است. با سوپرادمین تماس بگیرید.</div>`; btn.disabled=false; return; }
 
-    const device = getDeviceId();
-    if(u.device_id && u.device_id !== device){
-      msg.innerHTML = `<div class="error-box">این لایسنس هم‌اکنون روی دستگاه دیگری فعال است. برای انتقال، ابتدا از دستگاه قبلی خارج شوید یا از سوپرادمین بخواهید نشست را پایان دهد.</div>`;
-      btn.disabled = false; return;
-    }
-    if(!u.device_id){
-      const {error: upErr} = await sb.from('app_users').update({device_id: device}).eq('id', u.id);
-      if(upErr){ msg.innerHTML = `<div class="error-box">خطا در فعال‌سازی دستگاه.</div>`; btn.disabled=false; return; }
-      u.device_id = device;
-    }
     setSession(u);
     location.hash = '#/';
     boot();
@@ -451,10 +437,10 @@ async function renderSuperAdmin(me, hash){
 
     <div class="section-block">
       <h3 class="section-title">لایسنس‌ها و کاربران</h3>
-      <p class="muted" style="margin-top:0;">هر لایسنس فقط روی یک دستگاه فعال می‌شود. برای جابه‌جایی دستگاه، اول باید نشست فعلی پایان یابد.</p>
+      <p class="muted" style="margin-top:0;">هر لایسنس می‌تواند هم‌زمان روی هر تعداد دستگاه استفاده شود.</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>نام</th><th>شماره</th><th>نقش</th><th>کد لایسنس</th><th>وضعیت دستگاه</th><th>وضعیت لایسنس</th><th>عملیات</th></tr></thead>
+          <thead><tr><th>نام</th><th>شماره</th><th>نقش</th><th>کد لایسنس</th><th>وضعیت لایسنس</th><th>عملیات</th></tr></thead>
           <tbody id="users-tbody"></tbody>
         </table>
       </div>
@@ -476,7 +462,6 @@ async function renderSuperAdmin(me, hash){
 
   const usersTb = document.getElementById('users-tbody');
   usersTb.innerHTML = (admins||[]).map(u=>{
-    const deviceBadge = u.device_id ? `<span class="badge device">دستگاه متصل</span>` : `<span class="muted">بدون دستگاه</span>`;
     const statusBadge = u.is_active ? `<span class="badge on">فعال</span>` : `<span class="badge off">باطل</span>`;
     const isSelf = u.id === me.id;
     return `<tr>
@@ -484,11 +469,9 @@ async function renderSuperAdmin(me, hash){
       <td dir="ltr" style="text-align:left;">${escapeHtml(u.phone)}</td>
       <td>${u.role==='super_admin'?'سوپرادمین':'ادمین'}</td>
       <td><span class="code-chip">${escapeHtml(u.license_key)}</span></td>
-      <td>${deviceBadge}</td>
       <td>${statusBadge}</td>
       <td><div class="row-actions">
         <button class="btn-ghost small-ghost" data-edit="${u.id}" style="font-size:12px;padding:5px 10px;">ویرایش اطلاعات</button>
-        ${u.device_id ? `<button class="btn-ghost small-ghost" data-forcelogout="${u.id}" style="font-size:12px;padding:5px 10px;">پایان نشست دستگاه</button>` : ''}
         ${!isSelf ? (u.role==='super_admin'
             ? `<button class="btn-ghost" data-demote="${u.id}" style="font-size:12px;padding:5px 10px;">عزل از سوپرادمینی</button>`
             : `<button class="btn-ghost" data-promote="${u.id}" style="font-size:12px;padding:5px 10px;color:var(--pine-deep);">ارتقا به سوپرادمین</button>`) : ''}
@@ -498,20 +481,16 @@ async function renderSuperAdmin(me, hash){
           : ''}
       </div></td>
     </tr>`;
-  }).join('') || `<tr><td colspan="7" class="empty">هنوز کاربری ثبت نشده.</td></tr>`;
+  }).join('') || `<tr><td colspan="6" class="empty">هنوز کاربری ثبت نشده.</td></tr>`;
 
   usersTb.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{
     const u = (admins||[]).find(x=>x.id===b.dataset.edit);
     if(u) openEditUserModal(u, ()=>renderSuperAdmin(me, hash));
   });
 
-  usersTb.querySelectorAll('[data-forcelogout]').forEach(b=> b.onclick = async ()=>{
-    await sb.from('app_users').update({device_id:null}).eq('id', b.dataset.forcelogout);
-    renderSuperAdmin(me, hash);
-  });
   usersTb.querySelectorAll('[data-revoke]').forEach(b=> b.onclick = async ()=>{
     if(!confirm('این لایسنس باطل شود؟ کاربر دیگر نمی‌تواند وارد شود.')) return;
-    await sb.from('app_users').update({is_active:false, device_id:null}).eq('id', b.dataset.revoke);
+    await sb.from('app_users').update({is_active:false}).eq('id', b.dataset.revoke);
     renderSuperAdmin(me, hash);
   });
   usersTb.querySelectorAll('[data-activate]').forEach(b=> b.onclick = async ()=>{
